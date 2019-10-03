@@ -1,0 +1,184 @@
+#Azure function for gettting data from REST API and converting the data to JSON and load the data to BLOB Storage
+
+#r "Newtonsoft.Json"
+
+#r "Microsoft.WindowsAzure.Storage"
+
+ 
+
+using System.Net;
+
+using Microsoft.AspNetCore.Mvc;
+
+using Microsoft.Extensions.Primitives;
+
+using Newtonsoft.Json;
+
+using System.Xml;
+
+using System.Text;
+
+using System.Net.Http;
+
+using System.Configuration;
+
+ 
+
+using Microsoft.Azure;
+
+using Microsoft.WindowsAzure.Storage;
+
+using Microsoft.WindowsAzure.Storage.Blob;
+
+ 
+
+public static async Task<IActionResult> Run(HttpRequest req, ILogger log)
+
+{
+
+    log.LogInformation("C# HTTP trigger function processed a request.");
+
+ 
+
+ 
+
+ 
+
+    string name = req.Query["name"];
+
+    string pwd = req.Query["pwd"];
+
+    string url = req.Query["url"];
+
+ 
+
+ 
+
+    string requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+
+    dynamic data = JsonConvert.DeserializeObject(requestBody);
+
+    name = name ?? data?.name;
+
+    pwd = pwd ?? data?.pwd;
+
+    url = url ?? data?.url;
+
+ 
+
+    HttpClient client = new HttpClient();
+
+   
+
+    string test = "UserName=" + name + "&Password=" + pwd;
+
+    dynamic requestData = new StringContent(test, Encoding.UTF8, "application/x-www-form-urlencoded");
+
+ 
+
+    //var response = await client.PostAsync(String.Format(@"https://portal.trafnet.com/dataservice/trafsysdata.asmx/GetCustomerPast31Days"), requestData);
+
+    dynamic response = await client.PostAsync(String.Format(@url), requestData);
+
+    string result = await response.Content.ReadAsStringAsync();
+
+    XmlDocument xmlDoc = new XmlDocument();
+
+    xmlDoc.LoadXml(result);
+
+    dynamic jsonResult = JsonConvert.SerializeXmlNode(xmlDoc);
+
+ 
+
+    string jsonfilename;
+
+ 
+
+    jsonfilename = Guid.NewGuid().ToString("n");
+
+   
+
+    await CreateBlob(jsonfilename + ".json", jsonResult.ToString(), log);
+
+ 
+
+    return name != null
+
+        ? (ActionResult)new OkObjectResult(new {result="OK"})
+
+        : new BadRequestObjectResult("Please pass a name on the query string or in the request body");
+
+}
+
+private async static Task CreateBlob(string name, string jsondata, ILogger log)
+
+{
+
+    string accessKey;
+
+    string accountName;
+
+    string connectionString;
+
+    CloudStorageAccount storageAccount;
+
+    CloudBlobClient client;
+
+    CloudBlobContainer container;
+
+    CloudBlockBlob blob;
+
+ 
+
+   // accessKey = ConfigurationManager.AppSettings["CGStorageAccessKey"];
+
+    //accountName = ConfigurationManager.AppSettings["CGStorageAccountName"];
+
+    accountName = "azureadfstorage";
+
+    //connectionString = "DefaultEndpointsProtocol=https;AccountName=" + accountName + ";AccountKey=" + accessKey + ";EndpointSuffix=core.windows.net";
+
+    //connectionString = ConfigurationManager.AppSettings["CGConnString"];
+
+    connectionString = "DefaultEndpointsProtocol=https;AccountName=azureadfstorage;AccountKey=ZbvUiwkix0m8jIlkkPVSBx/AZlSrAQRnsfSnW3q+vfXbos8yrbL7ono/pzGy3VD0QkY2zsfeGk7iaYfoBcutUA==;EndpointSuffix=core.windows.net";
+
+    storageAccount = CloudStorageAccount.Parse(connectionString);
+
+ 
+
+    client = storageAccount.CreateCloudBlobClient();
+
+   
+
+    container = client.GetContainerReference("testing123");
+
+  
+
+    await container.CreateIfNotExistsAsync();
+
+   
+
+    blob = container.GetBlockBlobReference(name);
+
+    blob.Properties.ContentType = "application/json";
+
+ 
+
+    using (Stream stream = new MemoryStream(Encoding.UTF8.GetBytes(jsondata)))
+
+    {
+
+        await blob.UploadFromStreamAsync(stream);
+
+    }
+
+}
+
+Parameters to pass - 
+
+{
+    "name": "test@mgmresorts.com",
+    "pwd": "AC4SfkCyOlB7",
+    "url": "https://portal.trafnet.com/dataservice/trafsysdata.asmx/GetCustomerPast31Days"
+} 
+ 
